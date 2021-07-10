@@ -30,6 +30,12 @@ local function colorRed(string)
     return "|cffed5139"..string.."|r"
 end
 
+local function filterCharacter(data, character)
+    for id, _ in pairs(data) do
+        data[id][character] = nil
+    end
+    return data
+end
 
 local defaults = {
     profile = {
@@ -40,7 +46,6 @@ local defaults = {
         guildBroadcastThrottle = 60*15,
     },
     realm = {
-        localNumTradeSkills = {},
         localDB = {},
         sharedDB = {},
     },
@@ -51,32 +56,10 @@ local optionsTable = {
     name = "Held Hostile TradeSkill",
     desc = "Shared trade skill recipe database",
     args = {
-        clearLocal = {
-            type = "execute",
-            name = "Clear local data",
-            func = function()
-                TS.db.realm.localNumTradeSkills = {}
-                TS.db.realm.localDB = {}
-                TS.db.realm.sharedDB = {}
-                TS.db.realm.localCharacterCache = nil
-                TS:Print("Local data removed.")
-            end,
-            order = 1,
-            width = "full",
-        },
-        disableSyncInRaid = {
-            type = "toggle",
-            name = "Disable sync when in a raid",
-            desc = "...",
-            get = function() return TS.db.profile.disableSyncInRaid end,
-            set = function(_, v) TS.db.profile.disableSyncInRaid = v end,
-            order = 2,
-            width = "full",
-        },
-        debug = {
+        general = {
             type='group',
-            name = "Debug",
-            order = 3,
+            name = "General",
+            order = 1,
             args = {
                 toggleSyncLog = {
                     type = "toggle",
@@ -87,6 +70,56 @@ local optionsTable = {
                     order = 1,
                     width = "full",
                 },
+                purgeCharacter = {
+                    type = "input",
+                    name = "Clear data for specific character",
+                    usage = "player",
+                    set = function(_, player)
+                        TS.db.realm.localDB = filterCharacter(TS.db.realm.localDB, player)
+                        TS.db.realm.sharedDB = filterCharacter(TS.db.realm.sharedDB, player)
+                        TS:Print("Data for character "..player.." removed.")
+                    end,
+                    order = 2,
+                    width = "full",
+                },
+                clearLocal = {
+                    type = "execute",
+                    name = "Clear local data",
+                    func = function()
+                        TS.db.realm.localDB = {}
+                        TS.db.realm.sharedDB = {}
+                        TS:Print("Local data removed.")
+                    end,
+                    order = 3,
+                    width = "full",
+                },
+                disableSyncInRaid = {
+                    type = "toggle",
+                    name = "Disable sync when in a raid",
+                    desc = "...",
+                    get = function() return TS.db.profile.disableSyncInRaid end,
+                    set = function(_, v) TS.db.profile.disableSyncInRaid = v end,
+                    order = 4,
+                    width = "full",
+                },
+                requestFullSync = {
+                    type = "input",
+                    name = "Request full db sync",
+                    desc = "Request the full shared db from a player.",
+                    usage = "player",
+                    set = function(_, player)
+                        TS:SendRequestFull(player)
+                    end,
+                    order = 7,
+                    width = "full",
+                },
+            },
+        },
+        debug = {
+            type='group',
+            name = "Debug",
+            order = 3,
+            args = {
                 print = {
                     type = "toggle",
                     name = "Enable debug messages",
@@ -117,17 +150,6 @@ local optionsTable = {
                     order = 6,
                     width = "full",
                 },
-                requestFullSync = {
-                    type = "input",
-                    name = "Request full db sync",
-                    desc = "Request the full shared db from a player.",
-                    usage = "player",
-                    set = function(_, player)
-                        TS:SendRequestFull(player)
-                    end,
-                    order = 7,
-                    width = "full",
-                },
             },
         },
     }
@@ -146,20 +168,8 @@ AceConfigDialog:AddToBlizOptions(addonName, "HH TradeSkill")
 
 
 function TS:OnInitialize()
-    -- Classic and retail
-    self:RegisterEvent("TRADE_SKILL_SHOW", "LogEvent")
-    self:RegisterEvent("TRADE_SKILL_CLOSE", "LogEvent")
     self:RegisterEvent("TRADE_SKILL_UPDATE", "TradeSkillEvent")
-
-    -- Classic only
-    self:RegisterEvent("CRAFT_SHOW", "LogEvent")
-    self:RegisterEvent("CRAFT_CLOSE", "LogEvent")
     self:RegisterEvent("CRAFT_UPDATE", "TradeSkillEvent")
-
-    -- Classic and retail
-    self:RegisterEvent("TRADE_SKILL_LIST_UPDATE", "LogEvent")
-    self:RegisterEvent("TRADE_SKILL_NAME_UPDATE", "LogEvent")
-    self:RegisterEvent("TRADE_SKILL_DETAILS_UPDATE", "LogEvent")
 
     self.db = LibStub("AceDB-3.0"):New("HHTradeSkillDB", defaults)
 
@@ -189,6 +199,7 @@ function TS:Dump(...)
     end
 end
 
+
 --[[========================================================
                         Events
 ========================================================]]--
@@ -210,7 +221,11 @@ function TS:OnCommUpdate(prefix, message, channel, sender)
     if IsInRaid() and TS.db.profile.disableSyncInRaid then return end
     if channel == 'GUILD' and sender == UnitName('player') then return end
 
-    TS:DPrint(colorYellow('OnCommUpdate'), prefix, channel, sender)
+    if TS.db.profile.printSyncRequests then
+        TS:Print('Received recipe update from', sender)
+    else
+        TS:DPrint(colorYellow('OnCommUpdate'), prefix, channel, sender)
+    end
     local success, data = TS:Deserialize(message)
     if success then
         TS:Dump(data)
@@ -225,7 +240,11 @@ function TS:OnCommUpdateFull(prefix, message, channel, sender)
     if IsInRaid() and TS.db.profile.disableSyncInRaid then return end
     if channel == 'GUILD' and sender == UnitName('player') then return end
 
-    TS:DPrint(colorYellow('OnCommUpdate'), prefix, channel, sender)
+    if TS.db.profile.printSyncRequests then
+        TS:Print('Received full sync data from', sender)
+    else
+        TS:DPrint(colorYellow('OnCommUpdate'), prefix, channel, sender)
+    end
     local success, data = TS:Deserialize(message)
     if success then
         TS:DPrint(getn(data), 'rows received')
@@ -239,7 +258,11 @@ end
 function TS:OnCommRequestFull(prefix, message, channel, sender)
     if IsInRaid() and TS.db.profile.disableSyncInRaid then return end
 
-    TS:DPrint(colorYellow('OnCommRequestFull'), prefix, channel, sender)
+    if TS.db.profile.printSyncRequests then
+        TS:Print('Received recipe full sync request from', sender)
+    else
+        TS:DPrint(colorYellow('OnCommRequestFull'), prefix, channel, sender)
+    end
     TS:SendSharedDB('WHISPER', sender)
 end
 
@@ -253,6 +276,8 @@ local function GetIdFromLink(link)
     if link ~= nil then
         local found, _, id = string.find(link, "^|c%x+|H([^:]+:[^:]+).*|h%[.*%]")
         if found then
+            -- Seems enchants are called spells everywhere else..
+            id = gsub(id, 'enchant', 'spell')
             return id
         end
     end
@@ -294,53 +319,40 @@ function TS:UpdateLocalProfession(profession)
         end
     end
 
-    if TS.db.realm.localNumTradeSkills[character] == nil then
-        TS.db.realm.localNumTradeSkills[character] = {}
-    end
+    TS:DPrint(colorBlue('UpdateLocalProfession'), 'Updating local profession data', colorYellow(profession))
 
-    local numTradeSkills = GetNumTradeSkills()
-    if TS.db.realm.localNumTradeSkills[character][profession] == nil or
-        TS.db.realm.localNumTradeSkills[character][profession] < numTradeSkills
-    then
-        TS:DPrint(colorBlue('UpdateLocalProfession'), 'Updating local profession data', colorYellow(profession))
+    local newEntries = {}
 
-        local newEntries = {}
+    for i = 1,  GetNumTradeSkills() do
+        local itemName, kind = GetTradeSkillInfo(i)
+        if kind ~= nil and kind ~= 'header' and kind ~= 'subheader' then
+            local link = GetTradeSkillItemLink(i)
+            local id = GetIdFromLink(link)
 
-        for i = 1, numTradeSkills do
-            local itemName, kind = GetTradeSkillInfo(i)
-            if kind ~= nil and kind ~= 'header' and kind ~= 'subheader' then
-                local link = GetTradeSkillItemLink(i)
-                local id = GetIdFromLink(link)
+            -- Local DB
+            if TS.db.realm.localDB[id] == nil then
+                TS.db.realm.localDB[id] = {}
+            end
+            local _, class = UnitClass('player')
+            if TS.db.realm.localDB[id][character] == nil then
                 TS:DPrint(colorBlue(itemName), colorYellow(id), kind)
+                TS.db.realm.localDB[id][character] = class
+                tinsert(newEntries, id)
+            end
 
-                -- Local DB
-                if TS.db.realm.localDB[id] == nil then
-                    TS.db.realm.localDB[id] = {}
-                end
-                local _, class = UnitClass('player')
-                if TS.db.realm.localDB[id][character] == nil then
-                    TS.db.realm.localDB[id][character] = class
-                    tinsert(newEntries, id)
-                end
-
-                -- Shared DB
-                if TS.db.realm.sharedDB[id] == nil then
-                    TS.db.realm.sharedDB[id] = {}
-                end
-                if TS.db.realm.sharedDB[id][character] == nil then
-                    TS.db.realm.sharedDB[id][character] = class
-                end
+            -- Shared DB
+            if TS.db.realm.sharedDB[id] == nil then
+                TS.db.realm.sharedDB[id] = {}
+            end
+            if TS.db.realm.sharedDB[id][character] == nil then
+                TS.db.realm.sharedDB[id][character] = class
             end
         end
+    end
 
-        -- Broadcast new entries
-        if getn(newEntries) > 0 then
-            TS:SendLocalUpdates(newEntries, 'GUILD')
-        end
-
-        TS.db.realm.localNumTradeSkills[character][profession] = numTradeSkills
-    else
-        TS:DPrint(colorBlue('UpdateLocalProfession'), 'Skipping update. No change detected.')
+    -- Broadcast new entries
+    if getn(newEntries) > 0 then
+        TS:SendLocalUpdates(newEntries, 'GUILD')
     end
 end
 
@@ -420,7 +432,11 @@ function TS:SendLocalDB(channel, channelTarget)
     if IsInRaid() and TS.db.profile.disableSyncInRaid then return end
     if time() < TS.db.profile.lastGuildBroadcast + TS.db.profile.guildBroadcastThrottle then return end
 
-    TS:DPrint(colorYellow('SendLocalDB'), channel, channelTarget)
+    if TS.db.profile.printSyncRequests then
+        TS:Print('Sent local data to', channel, channelTarget or '')
+    else
+        TS:DPrint(colorYellow('SendLocalDB'), channel, channelTarget)
+    end
     local character = UnitName('player')
     local _, class = UnitClass('player')
     local payload = {
@@ -454,7 +470,11 @@ end
 function TS:SendLocalUpdates(idList, channel, channelTarget)
     if IsInRaid() and TS.db.profile.disableSyncInRaid then return end
 
-    TS:DPrint(colorYellow('SendLocalUpdates'), channel, channelTarget)
+    if TS.db.profile.printSyncRequests then
+        TS:Print('Sent local updates to', channel, channelTarget or '')
+    else
+        TS:DPrint(colorYellow('SendLocalUpdates'), channel, channelTarget)
+    end
     local character = UnitName('player')
     local _, class = UnitClass('player')
     local payload = {
@@ -477,7 +497,11 @@ end
 function TS:SendSharedDB(channel, channelTarget)
     if channel ~= 'WHISPER' then return end
 
-    TS:DPrint(colorYellow('SendSharedDB'), channel, channelTarget)
+    if TS.db.profile.printSyncRequests then
+        TS:Print('Sent full database to', channelTarget)
+    else
+        TS:DPrint(colorYellow('SendSharedDB'), channel, channelTarget)
+    end
     local serializedPayload = TS:Serialize(TS.db.realm.sharedDB)
     TS:SendCommMessage(
         COMM_UPDATE_FULL,
@@ -489,6 +513,11 @@ end
 
 
 function TS:SendRequestFull(channelTarget)
+    if TS.db.profile.printSyncRequests then
+        TS:Print('Sent request for full database to', channelTarget)
+    else
+        TS:DPrint(colorYellow('SendRequestFull'), 'WHISPER', channelTarget)
+    end
     TS:SendCommMessage(
         COMM_REQUEST_FULL,
         '',
@@ -496,3 +525,72 @@ function TS:SendRequestFull(channelTarget)
         channelTarget
     )
 end
+
+
+--[[========================================================
+                    Tooltip
+========================================================]]--
+
+
+local function ClassColor(text, class)
+    if RAID_CLASS_COLORS[class] ~= nil then
+        return strconcat('|c', RAID_CLASS_COLORS[class].colorStr, text, '|r')
+    end
+    return text
+end
+
+
+function TS:AddMakersToTooltip(tt, id)
+    -- TS:DPrint(colorYellow('AddMakersToTooltip'), id)
+    if TS.db.realm.sharedDB[id] ~= nil then
+        local makers = nil
+        for char, class in pairs(TS.db.realm.sharedDB[id]) do
+            if makers == nil then
+                makers = ClassColor(char, class)
+            else
+                makers = makers .. ', ' .. ClassColor(char, class)
+            end
+        end
+
+        if makers ~= nil then
+            tt:AddLine('Craftable by:', 1, 0.5, 0)
+            tt:AddLine(makers, 1, 1, 1, 1)
+
+            tt:Show()
+        end
+    end
+end
+
+
+hooksecurefunc(ItemRefTooltip, "SetHyperlink", function(self, link)
+    local id = string.match(link, "(item:%d*)")
+    if id then
+        TS:AddMakersToTooltip(self, id)
+    end
+end)
+
+
+GameTooltip:HookScript("OnTooltipSetItem", function(self)
+    local link = select(2, self:GetItem())
+    -- TS:DPrint(link)
+    if link then
+        local id = string.match(link, "(item:%d*)")
+        if id then
+            -- Look for id in database
+            -- Add line with players for this item
+            TS:AddMakersToTooltip(self, id)
+        end
+    end
+end)
+
+
+GameTooltip:HookScript("OnTooltipSetSpell", function(self)
+    -- TS:DPrint('OnTooltipSetSpell')
+    local id = select(2, self:GetSpell())
+    if id then
+        -- Look for id in database
+        -- Add line with players for this item
+        TS:AddMakersToTooltip(self, 'spell:'..id)
+    end
+end)
+
