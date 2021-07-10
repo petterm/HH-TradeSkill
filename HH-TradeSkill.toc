@@ -1,0 +1,12 @@
+## Interface: 20501
+## Title: HH Trade skill tracker
+## Notes: Held Hostile trade skill recipe tracking
+## Author: Pox / Meche
+## Version: 1.0.0
+## SavedVariables: HHTradeSkillDB
+## X-Category: Loot
+
+Libs\Libs.xml
+Locale\localization.xml
+
+HH-TradeSkill.lua
