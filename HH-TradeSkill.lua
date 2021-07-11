@@ -16,7 +16,8 @@ TS.commPrefix = 'HHTS'
 local COMM_UPDATE = strjoin('_', TS.commPrefix, 'UPD')
 local COMM_UPDATE_FULL = strjoin('_', TS.commPrefix, 'UPD_FULL')
 local COMM_REQUEST_FULL = strjoin('_', TS.commPrefix, 'REQ_FULL')
-
+local COMM_VERSION_REQUEST = strjoin('_', TS.commPrefix, 'VREQUEST')
+local COMM_VERSION_RESPONSE = strjoin('_', TS.commPrefix, 'VRESPONSE')
 
 local function colorYellow(string)
     return "|cffebd634"..(string or "nil").."|r"
@@ -44,6 +45,7 @@ local defaults = {
         disableSyncInRaid = true,
         lastGuildBroadcast = 0,
         guildBroadcastThrottle = 60*15,
+        clearCharacter = 'EMPTY',
     },
     realm = {
         localDB = {},
@@ -61,26 +63,29 @@ local optionsTable = {
             name = "General",
             order = 1,
             args = {
-                toggleSyncLog = {
-                    type = "toggle",
-                    name = "Enable sync messages",
-                    desc = "...",
-                    get = function() return TS.db.profile.printSyncRequests end,
-                    set = function(_, v) TS.db.profile.printSyncRequests = v end,
+                setCharacter = {
+                    type = "select",
+                    name = "Select the character to remove",
+                    values = function() return TS:GetSharedDBCharacters() end,
+                    set = function(_, character) TS.db.profile.clearCharacter = character end,
+                    get = function() return TS.db.profile.clearCharacter end,
                     order = 1,
-                    width = "full",
+                    width = 1.18,
                 },
-                purgeCharacter = {
-                    type = "input",
-                    name = "Clear data for specific character",
-                    usage = "player",
-                    set = function(_, player)
-                        TS.db.realm.localDB = filterCharacter(TS.db.realm.localDB, player)
-                        TS.db.realm.sharedDB = filterCharacter(TS.db.realm.sharedDB, player)
-                        TS:Print("Data for character "..player.." removed.")
+                clearCharacter = {
+                    type = "execute",
+                    name = "Clear character",
+                    func = function()
+                        local character = TS.db.profile.clearCharacter
+                        if character ~= 'EMPTY' then
+                            TS.db.realm.localDB = filterCharacter(TS.db.realm.localDB, character)
+                            TS.db.realm.sharedDB = filterCharacter(TS.db.realm.sharedDB, character)
+                            TS.db.profile.clearCharacter = nil
+                            TS:Print("Data for character "..character.." removed.")
+                        end
                     end,
                     order = 2,
-                    width = "full",
+                    width = 1.18,
                 },
                 clearLocal = {
                     type = "execute",
@@ -120,13 +125,31 @@ local optionsTable = {
             name = "Debug",
             order = 3,
             args = {
-                print = {
+                versionRequest = {
+                    type = "execute",
+                    name = "Request version information from guild members",
+                    func = function()
+                        TS:SendVersionRequest()
+                    end,
+                    order = 1,
+                    width = "full",
+                },
+                toggleSyncLog = {
+                    type = "toggle",
+                    name = "Enable sync messages",
+                    desc = "...",
+                    get = function() return TS.db.profile.printSyncRequests end,
+                    set = function(_, v) TS.db.profile.printSyncRequests = v end,
+                    order = 2,
+                    width = "full",
+                },
+                printDebug = {
                     type = "toggle",
                     name = "Enable debug messages",
                     desc = "...",
                     get = function() return TS.db.profile.debugPrint end,
                     set = function(_, v) TS.db.profile.debugPrint = v end,
-                    order = 1,
+                    order = 3,
                     width = "full",
                 },
                 testSendWhisper = {
@@ -176,6 +199,8 @@ function TS:OnInitialize()
     self:RegisterComm(COMM_UPDATE, 'OnCommUpdate')
     self:RegisterComm(COMM_UPDATE_FULL, 'OnCommUpdateFull')
     self:RegisterComm(COMM_REQUEST_FULL, 'OnCommRequestFull')
+    self:RegisterComm(COMM_VERSION_REQUEST, 'OnCommVersionRequest')
+    self:RegisterComm(COMM_VERSION_RESPONSE, 'OnCommVersionResponse')
 
     -- Schedule sending guild update 1 min after login
     self:ScheduleTimer(function()
@@ -206,14 +231,15 @@ end
 
 
 function TS:LogEvent(eventName)
-    local profession = GetTradeSkillLine() -- This is the localized name..
+    TS:DPrint(colorRed(eventName))
+    -- local profession = GetTradeSkillLine() -- This is the localized name..
 
-    -- Enchanting and Beast Training has a different UI..
-    if profession == "UNKNOWN" then
-        profession = GetCraftDisplaySkillLine() or "UNKNOWN"
-    end
+    -- -- Enchanting and Beast Training has a different UI..
+    -- if profession == "UNKNOWN" then
+    --     profession = GetCraftDisplaySkillLine() or "UNKNOWN"
+    -- end
 
-    TS:DPrint(colorRed(eventName), profession)
+    -- TS:DPrint(colorRed(eventName), profession)
 end
 
 
@@ -264,6 +290,26 @@ function TS:OnCommRequestFull(prefix, message, channel, sender)
         TS:DPrint(colorYellow('OnCommRequestFull'), prefix, channel, sender)
     end
     TS:SendSharedDB('WHISPER', sender)
+end
+
+
+function TS:OnCommVersionRequest(prefix, message, channel, sender)
+    if TS.db.profile.printSyncRequests then
+        TS:Print('Received version request from', sender)
+    else
+        TS:DPrint(colorYellow('OnCommVersionRequest'), prefix, channel, sender)
+    end
+    TS:SendVersionResponse(sender)
+end
+
+
+function TS:OnCommVersionResponse(prefix, message, channel, sender)
+    if TS.db.profile.printSyncRequests then
+        TS:Print('Received version response from', sender)
+    else
+        TS:DPrint(colorYellow('OnCommVersionResponse'), prefix, channel, sender)
+    end
+    TS:Print(sender, message)
 end
 
 
@@ -423,6 +469,21 @@ function TS:MergeSharedDB(data)
 end
 
 
+function TS:GetSharedDBCharacters()
+    local characters = {
+        ['EMPTY'] = '- Select -'
+    }
+    for _, idChars in pairs(TS.db.realm.sharedDB) do
+        for name, _ in pairs(idChars) do
+            if characters[name] == nil then
+                characters[name] = name
+            end
+        end
+    end
+    return characters
+end
+
+
 --[[========================================================
                     Communication
 ========================================================]]--
@@ -442,14 +503,8 @@ function TS:SendLocalDB(channel, channelTarget)
     local payload = {
         character = character,
         class = class,
-        db = {},
+        db = TS.db.realm.localDB,
     }
-
-    for key, value in pairs(TS.db.realm.localDB) do
-        if value[character] ~= nil then
-            tinsert(payload.db, key)
-        end
-    end
 
     local serializedPayload = TS:Serialize(payload)
     -- TS:Dump(serializedPayload)
@@ -524,6 +579,16 @@ function TS:SendRequestFull(channelTarget)
         'WHISPER',
         channelTarget
     )
+end
+
+
+function TS:SendVersionRequest()
+    TS:SendCommMessage(COMM_VERSION_REQUEST, 'TEST', 'GUILD')
+end
+
+
+function TS:SendVersionResponse(target)
+    TS:SendCommMessage(COMM_VERSION_RESPONSE, TS.version, 'WHISPER', target)
 end
 
 
