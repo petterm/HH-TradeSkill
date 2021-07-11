@@ -605,16 +605,25 @@ local function ClassColor(text, class)
 end
 
 
+local makerLimit = 8
 function TS:AddMakersToTooltip(tt, id)
     -- TS:DPrint(colorYellow('AddMakersToTooltip'), id)
     if TS.db.realm.sharedDB[id] ~= nil then
         local makers = nil
+        local count = 0
         for char, class in pairs(TS.db.realm.sharedDB[id]) do
-            if makers == nil then
-                makers = ClassColor(char, class)
-            else
-                makers = makers .. ', ' .. ClassColor(char, class)
+            if count <= makerLimit then
+                if makers == nil then
+                    makers = ClassColor(char, class)
+                else
+                    makers = makers .. ', ' .. ClassColor(char, class)
+                end
             end
+            count = count + 1
+        end
+
+        if count > makerLimit then
+            makers = makers .. ' (+'..count..')'
         end
 
         if makers ~= nil then
