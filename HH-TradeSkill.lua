@@ -245,7 +245,7 @@ end
 
 function TS:OnCommUpdate(prefix, message, channel, sender)
     if IsInRaid() and TS.db.profile.disableSyncInRaid then return end
-    if channel == 'GUILD' and sender == UnitName('player') then return end
+    if sender == UnitName('player') then return end
 
     if TS.db.profile.printSyncRequests then
         TS:Print('Received recipe update from', sender)
@@ -256,6 +256,10 @@ function TS:OnCommUpdate(prefix, message, channel, sender)
     if success then
         TS:Dump(data)
         TS:UpdateSharedDB(data.db, data.character, data.class)
+        if channel == 'GUILD' then
+            -- Respond to login-updates with localdb as a whisper
+            TS:SendLocalDB('WHISPER', sender)
+        end
     else
         TS:DPrint(colorRed('Serialization falied!'))
     end
@@ -264,7 +268,7 @@ end
 
 function TS:OnCommUpdateFull(prefix, message, channel, sender)
     if IsInRaid() and TS.db.profile.disableSyncInRaid then return end
-    if channel == 'GUILD' and sender == UnitName('player') then return end
+    if sender == UnitName('player') then return end
 
     if TS.db.profile.printSyncRequests then
         TS:Print('Received full sync data from', sender)
@@ -283,6 +287,7 @@ end
 
 function TS:OnCommRequestFull(prefix, message, channel, sender)
     if IsInRaid() and TS.db.profile.disableSyncInRaid then return end
+    if sender == UnitName('player') then return end
 
     if TS.db.profile.printSyncRequests then
         TS:Print('Received recipe full sync request from', sender)
