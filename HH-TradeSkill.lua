@@ -36,7 +36,9 @@ local function colorRed(string)
 end
 
 local function filterCharacter(db, character)
-    wipe(db[character])
+    if db[character] ~= nil then
+        wipe(db[character])
+    end
     return db
 end
 
@@ -84,7 +86,7 @@ local optionsTable = {
                         if character ~= 'EMPTY' then
                             TS.db.realm.localDB = filterCharacter(TS.db.realm.localDB, character)
                             TS.db.realm.sharedDB = filterCharacter(TS.db.realm.sharedDB, character)
-                            TS.db.profile.clearCharacter = nil
+                            TS.db.profile.clearCharacter = 'EMPTY'
                             TS:Print("Data for character "..character.." removed.")
                         end
                     end,
@@ -293,15 +295,17 @@ function TS:OnCommMessage(prefix, message, channel, sender)
         end
 
         if data.t == TS.M.LOGIN_UPDATE then
-            TS:UpdateSharedDB(data.db)
+            TS:UpdateSharedDB(data.db, true)
             TS:SendLocalDB(TS.M.LOGIN_RESPONSE, 'WHISPER', sender)
             return
         end
 
-        if
-            data.t == TS.M.LOGIN_RESPONSE or
-            data.t == TS.M.RECIPE_UPDATE
-        then
+        if data.t == TS.M.LOGIN_RESPONSE then
+            TS:UpdateSharedDB(data.db, true)
+            return
+        end
+
+        if data.t == TS.M.RECIPE_UPDATE then
             TS:UpdateSharedDB(data.db)
             return
         end
@@ -450,24 +454,38 @@ function TS:IsValidProfession(profession)
 end
 
 
-function TS:UpdateSharedDB(packedDB)
+function TS:UpdateSharedDB(packedDB, replace)
     if TS.db.realm.sharedDB == nil then
         TS.db.realm.sharedDB = {}
     end
 
+    local total = 0
     local updates = 0
-    for character, idList in ipairs(packedDB) do
+    local debugCharacters = {}
+
+    for character, idList in pairs(packedDB) do
+        tinsert(debugCharacters, character)
+
         if TS.db.realm.sharedDB[character] == nil then
             TS.db.realm.sharedDB[character] = {}
+        elseif replace then
+            wipe(TS.db.realm.sharedDB[character])
         end
+
         for _, id in ipairs(idList) do
             if TS.db.realm.sharedDB[character][id] == nil then
                 TS.db.realm.sharedDB[character][id] = true
                 updates = updates + 1
             end
+            total = total + 1
         end
     end
-    TS:DPrint(colorYellow('UpdateSharedDB'), updates, 'entries updated')
+    TS:DPrint(
+        colorYellow('UpdateSharedDB'),
+        updates..'/'..total,
+        (replace and 'entries replaced') or 'entries updated'
+    )
+    TS:DPrint(colorYellow('UpdateSharedDB'),strjoin(', ', unpack(debugCharacters)))
 end
 
 
@@ -526,7 +544,9 @@ end
 
 function TS:SendLocalDB(messageType, channel, channelTarget)
     if IsInRaid() and TS.db.profile.disableSyncInRaid then return end
-    if time() < TS.db.profile.lastGuildBroadcast + TS.db.profile.guildBroadcastThrottle then return end
+
+    local nextGuildUpd = TS.db.profile.lastGuildBroadcast + TS.db.profile.guildBroadcastThrottle
+    if channel == 'GUILD' and time() < nextGuildUpd then return end
 
     if TS.db.profile.printSyncRequests then
         TS:Print('Sent local data to', channel, channelTarget or '')
@@ -684,30 +704,28 @@ end
 local makerLimit = 5
 function TS:AddMakersToTooltip(tt, id)
     -- TS:DPrint(colorYellow('AddMakersToTooltip'), id)
-    local makers = nil
+    local makers = {}
     local count = 0
     for character, ids in pairs(TS.db.realm.sharedDB) do
         if ids[id] then
             if count < makerLimit or IsModifierKeyDown() then
                 local name = TS:GetCharName(character)
                 local class = TS:GetCharClass(character)
-                if makers == nil then
-                    makers = ClassColor(name, class)
-                else
-                    makers = makers .. ', ' .. ClassColor(name, class)
-                end
+                tinsert(makers, ClassColor(name, class))
             end
             count = count + 1
         end
     end
 
+    local makerStr = strjoin(', ', unpack(makers))
+
     if count > makerLimit and not IsModifierKeyDown() then
-        makers = makers .. ' (+'..count-makerLimit..')'
+        makerStr = makerStr .. ' (+'..count-makerLimit..')'
     end
 
-    if makers ~= nil then
+    if count > 0 then
         tt:AddLine('Craftable by:', 1, 0.5, 0)
-        tt:AddLine(makers, 1, 1, 1, 1)
+        tt:AddLine(makerStr, 1, 1, 1, 1)
 
         tt:Show()
     end
