@@ -4,7 +4,16 @@ new_read_globals = {
     "strjoin",
     "time",
     "getn",
+    "wipe",
+    "strmatch",
     "DevTools_Dump",
+    "strconcat",
+    "gsub",
+    "sort",
+    "RAID_CLASS_COLORS",
+
+    "ItemRefTooltip",
+    "GameTooltip",
 
     "AcceptArenaTeam",
     "ArenaTeamDisband",

@@ -13,11 +13,15 @@ TS.L = L
 
 TS.version = GetAddOnMetadata(addonName, "Version")
 TS.commPrefix = 'HHTS'
-local COMM_UPDATE = strjoin('_', TS.commPrefix, 'UPD')
-local COMM_UPDATE_FULL = strjoin('_', TS.commPrefix, 'UPD_FULL')
-local COMM_REQUEST_FULL = strjoin('_', TS.commPrefix, 'REQ_FULL')
-local COMM_VERSION_REQUEST = strjoin('_', TS.commPrefix, 'VREQUEST')
-local COMM_VERSION_RESPONSE = strjoin('_', TS.commPrefix, 'VRESPONSE')
+TS.M = { -- Comm message types
+    LOGIN_UPDATE = 'LOGIN_UPD_01',
+    LOGIN_RESPONSE = 'LOGIN_RES_01',
+    VERSION_QUERY = 'VER_QUERY_01',
+    VERSION_RESPONSE = 'VER_RES_01',
+    FULL_DB_REQUEST = 'DB_REQ_01',
+    FULL_DB_RESPONSE = 'DB_RES_01',
+    RECIPE_UPDATE = 'RECIPE_UPD_01',
+}
 
 local function colorYellow(string)
     return "|cffebd634"..(string or "nil").."|r"
@@ -28,26 +32,25 @@ local function colorBlue(string)
 end
 
 local function colorRed(string)
-    return "|cffed5139"..string.."|r"
+    return "|cffed5139"..(string or 'nil').."|r"
 end
 
-local function filterCharacter(data, character)
-    for id, _ in pairs(data) do
-        data[id][character] = nil
-    end
-    return data
+local function filterCharacter(db, character)
+    wipe(db[character])
+    return db
 end
 
 local defaults = {
     profile = {
         debugPrint = false,
-        printSyncRequests = true,
+        printSyncRequests = false,
         disableSyncInRaid = true,
         lastGuildBroadcast = 0,
-        guildBroadcastThrottle = 60*15,
+        guildBroadcastThrottle = 60*10,
         clearCharacter = 'EMPTY',
     },
     realm = {
+        dbVersion = nil,
         localDB = {},
         sharedDB = {},
     },
@@ -66,7 +69,8 @@ local optionsTable = {
                 setCharacter = {
                     type = "select",
                     name = "Select the character to remove",
-                    values = function() return TS:GetSharedDBCharacters() end,
+                    values = function() return select(1, TS:GetSharedDBCharacters()) end,
+                    sorting = function() return select(2, TS:GetSharedDBCharacters()) end,
                     set = function(_, character) TS.db.profile.clearCharacter = character end,
                     get = function() return TS.db.profile.clearCharacter end,
                     order = 1,
@@ -91,8 +95,8 @@ local optionsTable = {
                     type = "execute",
                     name = "Clear local data",
                     func = function()
-                        TS.db.realm.localDB = {}
-                        TS.db.realm.sharedDB = {}
+                        wipe(TS.db.realm.localDB)
+                        wipe(TS.db.realm.sharedDB)
                         TS:Print("Local data removed.")
                     end,
                     order = 3,
@@ -158,7 +162,7 @@ local optionsTable = {
                     desc = "Test sending local db in whisper to player",
                     usage = "player",
                     set = function(_, player)
-                        TS:SendLocalDB('WHISPER', player)
+                        TS:SendLocalDB(TS.M.LOGIN_RESPONSE, 'WHISPER', player)
                     end,
                     order = 5,
                     width = "full",
@@ -168,7 +172,7 @@ local optionsTable = {
                     name = "Test send guild",
                     desc = "Test sending local db to guild",
                     set = function()
-                        TS:SendLocalDB('GUILD')
+                        TS:SendLocalDB(TS.M.LOGIN_UPDATE, 'GUILD')
                     end,
                     order = 6,
                     width = "full",
@@ -189,23 +193,48 @@ AceConfigDialog:AddToBlizOptions(addonName, "HH TradeSkill")
                         SETUP
 ========================================================]]--
 
+local function GetConvertedDB(db)
+    local newDb = {}
+    for id, characters in pairs(db) do
+        for name, class in pairs(characters) do
+            local character = name..':'..class
+            if newDb[character] == nil then newDb[character] = {} end
+            newDb[character][id] = true
+        end
+    end
+    return newDb
+end
+
 
 function TS:OnInitialize()
-    self:RegisterEvent("TRADE_SKILL_UPDATE", "TradeSkillEvent")
-    self:RegisterEvent("CRAFT_UPDATE", "TradeSkillEvent")
+    TS:RegisterEvent("TRADE_SKILL_UPDATE", "TradeSkillEvent")
+    TS:RegisterEvent("CRAFT_UPDATE", "TradeSkillEvent")
 
-    self.db = LibStub("AceDB-3.0"):New("HHTradeSkillDB", defaults)
+    TS.db = LibStub("AceDB-3.0"):New("HHTradeSkillDB", defaults)
+    if TS.db.realm.dbVersion == nil or TS.db.realm.dbVersion < '1.1.0' then
+        -- Old database
+        TS:DPrint('Database version:', TS.db.realm.dbVersion, 'Addon version:', TS.version)
+        TS:DPrint('Clearing sharedDB and localDB..')
 
-    self:RegisterComm(COMM_UPDATE, 'OnCommUpdate')
-    self:RegisterComm(COMM_UPDATE_FULL, 'OnCommUpdateFull')
-    self:RegisterComm(COMM_REQUEST_FULL, 'OnCommRequestFull')
-    self:RegisterComm(COMM_VERSION_REQUEST, 'OnCommVersionRequest')
-    self:RegisterComm(COMM_VERSION_RESPONSE, 'OnCommVersionResponse')
+        -- Update DB
+        local newSharedDb = GetConvertedDB(TS.db.realm.sharedDB)
+        wipe(TS.db.realm.sharedDB)
+        TS.db.realm.sharedDB = newSharedDb
+        local newLocalDb = GetConvertedDB(TS.db.realm.localDB)
+        wipe(TS.db.realm.localDB)
+        TS.db.realm.localDB = newLocalDb
+
+        TS.db.realm.localNumTradeSkills = nil
+        TS.db.profile.printSyncRequests = false
+    end
+    TS.db.realm.dbVersion = TS.version
+
+    TS:RegisterComm(TS.commPrefix, 'OnCommMessage')
 
     -- Schedule sending guild update 1 min after login
-    self:ScheduleTimer(function()
+    TS:ScheduleTimer(function()
         if IsInGuild() then
-            TS:SendLocalDB('GUILD')
+            TS:SendLocalDB(TS.M.LOGIN_UPDATE, 'GUILD')
         end
     end, 60)
 end
@@ -243,84 +272,72 @@ function TS:LogEvent(eventName)
 end
 
 
-function TS:OnCommUpdate(prefix, message, channel, sender)
+function TS:OnCommMessage(prefix, message, channel, sender)
+    TS:DPrint(colorYellow('OnCommMessage'), prefix, channel, sender)
     if IsInRaid() and TS.db.profile.disableSyncInRaid then return end
     if sender == UnitName('player') then return end
 
-    if TS.db.profile.printSyncRequests then
-        TS:Print('Received recipe update from', sender)
-    else
-        TS:DPrint(colorYellow('OnCommUpdate'), prefix, channel, sender)
-    end
     local success, data = TS:Deserialize(message)
     if success then
-        TS:Dump(data)
-        TS:UpdateSharedDB(data.db, data.character, data.class)
-        if channel == 'GUILD' then
-            -- Respond to login-updates with localdb as a whisper
-            TS:SendLocalDB('WHISPER', sender)
+        TS:DPrint('- ', colorYellow('type:'), data.t, colorYellow('version:'), data.v)
+        TS:VersionCheck(data.v, sender)
+
+        if data.t == TS.M.VERSION_QUERY then
+            TS:SendVersionResponse(sender)
+            return
         end
+
+        if data.t == TS.M.VERSION_RESPONSE then
+            TS:PrintVersionResponse(data.v, sender)
+            return
+        end
+
+        if data.t == TS.M.LOGIN_UPDATE then
+            TS:UpdateSharedDB(data.db)
+            TS:SendLocalDB(TS.M.LOGIN_RESPONSE, 'WHISPER', sender)
+            return
+        end
+
+        if
+            data.t == TS.M.LOGIN_RESPONSE or
+            data.t == TS.M.RECIPE_UPDATE
+        then
+            TS:UpdateSharedDB(data.db)
+            return
+        end
+
+        if data.t == TS.M.FULL_DB_REQUEST then
+            TS:SendSharedDB(TS.M.FULL_DB_RESPONSE, sender)
+            return
+        end
+
+        if data.t == TS.M.FULL_DB_RESPONSE then
+            TS:UpdateSharedDB(data.db)
+            return
+        end
+
+        TS:DPrint(colorRed('Unknown message!'))
     else
         TS:DPrint(colorRed('Serialization falied!'))
     end
-end
-
-
-function TS:OnCommUpdateFull(prefix, message, channel, sender)
-    if IsInRaid() and TS.db.profile.disableSyncInRaid then return end
-    if sender == UnitName('player') then return end
-
-    if TS.db.profile.printSyncRequests then
-        TS:Print('Received full sync data from', sender)
-    else
-        TS:DPrint(colorYellow('OnCommUpdate'), prefix, channel, sender)
-    end
-    local success, data = TS:Deserialize(message)
-    if success then
-        TS:DPrint(getn(data), 'rows received')
-        TS:MergeSharedDB(data)
-    else
-        TS:DPrint(colorRed('Serialization falied!'))
-    end
-end
-
-
-function TS:OnCommRequestFull(prefix, message, channel, sender)
-    if IsInRaid() and TS.db.profile.disableSyncInRaid then return end
-    if sender == UnitName('player') then return end
-
-    if TS.db.profile.printSyncRequests then
-        TS:Print('Received recipe full sync request from', sender)
-    else
-        TS:DPrint(colorYellow('OnCommRequestFull'), prefix, channel, sender)
-    end
-    TS:SendSharedDB('WHISPER', sender)
-end
-
-
-function TS:OnCommVersionRequest(prefix, message, channel, sender)
-    if TS.db.profile.printSyncRequests then
-        TS:Print('Received version request from', sender)
-    else
-        TS:DPrint(colorYellow('OnCommVersionRequest'), prefix, channel, sender)
-    end
-    TS:SendVersionResponse(sender)
-end
-
-
-function TS:OnCommVersionResponse(prefix, message, channel, sender)
-    if TS.db.profile.printSyncRequests then
-        TS:Print('Received version response from', sender)
-    else
-        TS:DPrint(colorYellow('OnCommVersionResponse'), prefix, channel, sender)
-    end
-    TS:Print(sender, message)
 end
 
 
 --[[========================================================
                         Data
 ========================================================]]--
+
+
+local function PackDB(db)
+    local response = {}
+    for character, idMap in pairs(db) do
+        response[character] = {}
+        for id, _ in pairs(idMap) do
+            tinsert(response[character], id)
+        end
+    end
+    return response
+end
 
 
 local function GetIdFromLink(link)
@@ -349,7 +366,7 @@ end
 
 
 function TS:UpdateLocalProfession(profession)
-    local character = UnitName('player')
+    local character = TS:GetCurrentCharacter()
 
     if not TS:IsValidProfession(profession) then
         TS:DPrint(colorBlue('UpdateLocalProfession'), 'Invalid profession', profession)
@@ -381,22 +398,21 @@ function TS:UpdateLocalProfession(profession)
             local id = GetIdFromLink(link)
 
             -- Local DB
-            if TS.db.realm.localDB[id] == nil then
-                TS.db.realm.localDB[id] = {}
+            if TS.db.realm.localDB[character] == nil then
+                TS.db.realm.localDB[character] = {}
             end
-            local _, class = UnitClass('player')
-            if TS.db.realm.localDB[id][character] == nil then
+            if TS.db.realm.localDB[character][id] == nil then
                 TS:DPrint(colorBlue(itemName), colorYellow(id), kind)
-                TS.db.realm.localDB[id][character] = class
+                TS.db.realm.localDB[character][id] = true
                 tinsert(newEntries, id)
             end
 
             -- Shared DB
-            if TS.db.realm.sharedDB[id] == nil then
-                TS.db.realm.sharedDB[id] = {}
+            if TS.db.realm.sharedDB[character] == nil then
+                TS.db.realm.sharedDB[character] = {}
             end
-            if TS.db.realm.sharedDB[id][character] == nil then
-                TS.db.realm.sharedDB[id][character] = class
+            if TS.db.realm.sharedDB[character][id] == nil then
+                TS.db.realm.sharedDB[character][id] = true
             end
         end
     end
@@ -434,43 +450,24 @@ function TS:IsValidProfession(profession)
 end
 
 
-function TS:UpdateSharedDB(data, character, class)
+function TS:UpdateSharedDB(packedDB)
     if TS.db.realm.sharedDB == nil then
         TS.db.realm.sharedDB = {}
     end
 
     local updates = 0
-    for _, id in ipairs(data) do
-        if TS.db.realm.sharedDB[id] == nil then
-            TS.db.realm.sharedDB[id] = {}
+    for character, idList in ipairs(packedDB) do
+        if TS.db.realm.sharedDB[character] == nil then
+            TS.db.realm.sharedDB[character] = {}
         end
-        if TS.db.realm.sharedDB[id][character] == nil then
-            TS.db.realm.sharedDB[id][character] = class
-            updates = updates + 1
-        end
-    end
-    TS:DPrint(colorYellow('UpdateSharedDB'), updates, 'entries updated')
-end
-
-
-function TS:MergeSharedDB(data)
-    if TS.db.realm.sharedDB == nil then
-        TS.db.realm.sharedDB = data
-        return
-    end
-
-    local updates = 0
-    for id, characters in pairs(data) do
-        if TS.db.realm.sharedDB[id] == nil then
-            TS.db.realm.sharedDB[id] = {}
-        end
-        for character, class in ipairs(characters) do
-            if TS.db.realm.sharedDB[id][character] == nil then
-                TS.db.realm.sharedDB[id][character] = class
+        for _, id in ipairs(idList) do
+            if TS.db.realm.sharedDB[character][id] == nil then
+                TS.db.realm.sharedDB[character][id] = true
                 updates = updates + 1
             end
         end
     end
+    TS:DPrint(colorYellow('UpdateSharedDB'), updates, 'entries updated')
 end
 
 
@@ -478,14 +475,47 @@ function TS:GetSharedDBCharacters()
     local characters = {
         ['EMPTY'] = '- Select -'
     }
-    for _, idChars in pairs(TS.db.realm.sharedDB) do
-        for name, _ in pairs(idChars) do
-            if characters[name] == nil then
-                characters[name] = name
-            end
+    local sortedKeys = {}
+    for character, _ in pairs(TS.db.realm.sharedDB) do
+        if characters[character] == nil then
+            characters[character] = TS:GetCharName(character)
+            tinsert(sortedKeys, character)
         end
     end
-    return characters
+    sort(sortedKeys)
+    tinsert(sortedKeys, 1, 'EMPTY')
+    return characters, sortedKeys
+end
+
+
+function TS:GetCharName(character)
+    return strmatch(character, '([^:]+)')
+end
+
+
+function TS:GetCharClass(character)
+    return strmatch(character, ':([^:]+)')
+end
+
+
+function TS:GetCurrentCharacter()
+    local character = UnitName('player')
+    local _, class = UnitClass('player')
+    return character..':'..class
+end
+
+
+local versionAnnounced = nil
+function TS:VersionCheck(version, sender)
+    if version and version > TS.version and (versionAnnounced == nil or version > versionAnnounced) then
+        TS:Print(colorYellow('New version available!'), 'v'..version, sender)
+        versionAnnounced = version
+    end
+end
+
+
+function TS:PrintVersionResponse(version, sender)
+    TS:Print('v'..version, sender)
 end
 
 
@@ -494,7 +524,7 @@ end
 ========================================================]]--
 
 
-function TS:SendLocalDB(channel, channelTarget)
+function TS:SendLocalDB(messageType, channel, channelTarget)
     if IsInRaid() and TS.db.profile.disableSyncInRaid then return end
     if time() < TS.db.profile.lastGuildBroadcast + TS.db.profile.guildBroadcastThrottle then return end
 
@@ -503,19 +533,17 @@ function TS:SendLocalDB(channel, channelTarget)
     else
         TS:DPrint(colorYellow('SendLocalDB'), channel, channelTarget)
     end
-    local character = UnitName('player')
-    local _, class = UnitClass('player')
+
     local payload = {
-        character = character,
-        class = class,
-        db = TS.db.realm.localDB,
+        t = messageType,
+        v = TS.version,
+        db = PackDB(TS.db.realm.localDB),
     }
 
     local serializedPayload = TS:Serialize(payload)
-    -- TS:Dump(serializedPayload)
 
     TS:SendCommMessage(
-        COMM_UPDATE,
+        TS.commPrefix,
         serializedPayload,
         channel,
         channelTarget
@@ -535,18 +563,19 @@ function TS:SendLocalUpdates(idList, channel, channelTarget)
     else
         TS:DPrint(colorYellow('SendLocalUpdates'), channel, channelTarget)
     end
-    local character = UnitName('player')
-    local _, class = UnitClass('player')
+
     local payload = {
-        character = character,
-        class = class,
-        db = idList,
+        t = TS.M.RECIPE_UPDATE,
+        v = TS.version,
+        db = {
+            [TS:GetCurrentCharacter()] = idList,
+        }
     }
 
     local serializedPayload = TS:Serialize(payload)
 
     TS:SendCommMessage(
-        COMM_UPDATE,
+        TS.commPrefix,
         serializedPayload,
         channel,
         channelTarget
@@ -554,46 +583,88 @@ function TS:SendLocalUpdates(idList, channel, channelTarget)
 end
 
 
-function TS:SendSharedDB(channel, channelTarget)
-    if channel ~= 'WHISPER' then return end
+function TS:SendSharedDB(messageType, target)
+    if IsInRaid() and TS.db.profile.disableSyncInRaid then return end
 
     if TS.db.profile.printSyncRequests then
-        TS:Print('Sent full database to', channelTarget)
+        TS:Print('Sent full database to', target)
     else
-        TS:DPrint(colorYellow('SendSharedDB'), channel, channelTarget)
+        TS:DPrint(colorYellow('SendSharedDB'), 'WHISPER', target)
     end
-    local serializedPayload = TS:Serialize(TS.db.realm.sharedDB)
+
+    local payload = {
+        t = messageType,
+        v = TS.version,
+        db = PackDB(TS.db.realm.sharedDB),
+    }
+
+    local serializedPayload = TS:Serialize(payload)
+
     TS:SendCommMessage(
-        COMM_UPDATE_FULL,
+        TS.commPrefix,
         serializedPayload,
-        channel,
-        channelTarget
-    )
-end
-
-
-function TS:SendRequestFull(channelTarget)
-    if TS.db.profile.printSyncRequests then
-        TS:Print('Sent request for full database to', channelTarget)
-    else
-        TS:DPrint(colorYellow('SendRequestFull'), 'WHISPER', channelTarget)
-    end
-    TS:SendCommMessage(
-        COMM_REQUEST_FULL,
-        '',
         'WHISPER',
-        channelTarget
+        target
+    )
+end
+
+
+function TS:SendRequestFull(target)
+    if IsInRaid() and TS.db.profile.disableSyncInRaid then return end
+
+    if TS.db.profile.printSyncRequests then
+        TS:Print('Sent request for full database to', target)
+    else
+        TS:DPrint(colorYellow('SendRequestFull'), 'WHISPER', target)
+    end
+
+    local payload = {
+        t = TS.M.FULL_DB_REQUEST,
+        v = TS.version,
+    }
+
+    local serializedPayload = TS:Serialize(payload)
+
+    TS:SendCommMessage(
+        TS.commPrefix,
+        serializedPayload,
+        'WHISPER',
+        target
     )
 end
 
 
 function TS:SendVersionRequest()
-    TS:SendCommMessage(COMM_VERSION_REQUEST, 'TEST', 'GUILD')
+    local payload = {
+        t = TS.M.VERSION_QUERY,
+        v = TS.version,
+    }
+
+    local serializedPayload = TS:Serialize(payload)
+
+    TS:Print('Requesting version information from guild..')
+    TS:SendCommMessage(
+        TS.commPrefix,
+        serializedPayload,
+        'GUILD'
+    )
 end
 
 
 function TS:SendVersionResponse(target)
-    TS:SendCommMessage(COMM_VERSION_RESPONSE, TS.version, 'WHISPER', target)
+    local payload = {
+        t = TS.M.VERSION_RESPONSE,
+        v = TS.version,
+    }
+
+    local serializedPayload = TS:Serialize(payload)
+
+    TS:SendCommMessage(
+        TS.commPrefix,
+        serializedPayload,
+        'WHISPER',
+        target
+    )
 end
 
 
@@ -610,33 +681,35 @@ local function ClassColor(text, class)
 end
 
 
-local makerLimit = 1
+local makerLimit = 5
 function TS:AddMakersToTooltip(tt, id)
     -- TS:DPrint(colorYellow('AddMakersToTooltip'), id)
-    if TS.db.realm.sharedDB[id] ~= nil then
-        local makers = nil
-        local count = 0
-        for char, class in pairs(TS.db.realm.sharedDB[id]) do
+    local makers = nil
+    local count = 0
+    for character, ids in pairs(TS.db.realm.sharedDB) do
+        if ids[id] then
             if count < makerLimit or IsModifierKeyDown() then
+                local name = TS:GetCharName(character)
+                local class = TS:GetCharClass(character)
                 if makers == nil then
-                    makers = ClassColor(char, class)
+                    makers = ClassColor(name, class)
                 else
-                    makers = makers .. ', ' .. ClassColor(char, class)
+                    makers = makers .. ', ' .. ClassColor(name, class)
                 end
             end
             count = count + 1
         end
+    end
 
-        if count > makerLimit and not IsModifierKeyDown() then
-            makers = makers .. ' (+'..count-makerLimit..')'
-        end
+    if count > makerLimit and not IsModifierKeyDown() then
+        makers = makers .. ' (+'..count-makerLimit..')'
+    end
 
-        if makers ~= nil then
-            tt:AddLine('Craftable by:', 1, 0.5, 0)
-            tt:AddLine(makers, 1, 1, 1, 1)
+    if makers ~= nil then
+        tt:AddLine('Craftable by:', 1, 0.5, 0)
+        tt:AddLine(makers, 1, 1, 1, 1)
 
-            tt:Show()
-        end
+        tt:Show()
     end
 end
 
