@@ -58,7 +58,7 @@ local defaults = {
 
 local optionsTable = {
     type='group',
-    name = "Held Hostile TradeSkill",
+    name = "Held Hostile TradeSkill ("..TS.version..")",
     desc = "Shared trade skill recipe database",
     args = {
         general = {
