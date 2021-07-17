@@ -5,33 +5,15 @@
   - ~~Add limit to total shown, maybe with "+N" after~~
     - Added.
     - Is 8 too high?
-  - Sort by name?
+  - ~~Sort by name?~~
   - Anything with guild-alt-main stuff?
-- Add login version broadcast
-  - Print notice of newer versions available
+- ~~Add login version broadcast~~
+  - ~~Print notice of newer versions available~~
 - Gotta fix enchantings ID prefix. enchant:nnn is bullshit.
   Cant seem to find a way to get the item from the crafting spell.
   I think Ill have to live with it. Can still see the crafters on them in AtlasLoot.
-- Depending on broadcast updates below might want to split db per character instead
+- ~~Depending on broadcast updates below might want to split db per character instead~~
 
-### Comm:
-
-```
-On login
-> COMM_UPDATE GUILD - Send my DB to everyone
-
-On updated recipes
-> COMM_UPDATE GUILD - Only the updated data
-    If efficient it could send all, or send all once then throttle for some time
-
-Manually
-> COMM_REQUEST_FULL - To a selected player
-< COMM_UPDATE_FULL - Full db sent back
-
-Version check
-> COMM_VERSION_QUERY GUILD
-< COMM_VERSION_RESPONSE
-```
 
 ### Communication ideas
 
