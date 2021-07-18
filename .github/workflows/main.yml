@@ -8,11 +8,11 @@ on:
 jobs:
   build:
     runs-on: ubuntu-latest
+    env:
+      FILENAME: HH-TradeSkill-${GITHUB_REF#refs/tags/}-bc.zip
     steps:
       - name: Checkout
         uses: actions/checkout@v2
-      - name: Generate filename
-        run: FILENAME=HH-TradeSkill-${GITHUB_REF#refs/tags/}-bc.zip
       - name: Build
         run: |
           mkdir HH-TradeSkill
