@@ -11,9 +11,8 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v2
-      - name: Get the version
-        id: get_version
-        run: echo ::set-output name=VERSION::${GITHUB_REF#refs/tags/}
+      - name: Generate filename
+        run: FILENAME=HH-TradeSkill-${GITHUB_REF#refs/tags/}-bc.zip
       - name: Build
         run: |
           mkdir HH-TradeSkill
@@ -21,13 +20,14 @@ jobs:
       - name: Archive Release
         uses: thedoctor0/zip-release@master
         with:
-          filename: HH-TradeSkill-${{env.VERSION}}-bc.zip
+          filename: ${{FILENAME}}
           path: ./HH-TradeSkill
       - name: Release
         uses: softprops/action-gh-release@v1
         if: startsWith(github.ref, 'refs/tags/')
         with:
-          files: HH-TradeSkill-${{env.VERSION}}-bc.zip
+          files: ${{FILENAME}}
           prerelease: true
+          draft: true
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
