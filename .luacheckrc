@@ -3,6 +3,7 @@ new_read_globals = {
     "tinsert",
     "strjoin",
     "time",
+    "date",
     "getn",
     "wipe",
     "strmatch",

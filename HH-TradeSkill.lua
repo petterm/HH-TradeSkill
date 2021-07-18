@@ -546,7 +546,10 @@ function TS:SendLocalDB(messageType, channel, channelTarget)
     if IsInRaid() and TS.db.profile.disableSyncInRaid then return end
 
     local nextGuildUpd = TS.db.profile.lastGuildBroadcast + TS.db.profile.guildBroadcastThrottle
-    if channel == 'GUILD' and time() < nextGuildUpd then return end
+    if channel == 'GUILD' and time() < nextGuildUpd then
+        TS:DPrint(colorYellow('SendLocalDB'), 'Update skipped due to throttle', date('%H:%M:%S', nextGuildUpd))
+        return
+    end
 
     if TS.db.profile.printSyncRequests then
         TS:Print('Sent local data to', channel, channelTarget or '')
