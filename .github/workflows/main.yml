@@ -1,0 +1,33 @@
+name: Main
+
+on:
+  push:
+    tags:
+      - 'v*.*.*'
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v2
+      - name: Get the version
+        id: get_version
+        run: echo ::set-output name=VERSION::${GITHUB_REF#refs/tags/}
+      - name: Build
+        run: |
+          mkdir HH-TradeSkill
+          mv -t HH-TradeSkill/ Libs locale HH-TradeSkill.toc *.lua
+      - name: Archive Release
+        uses: thedoctor0/zip-release@master
+        with:
+          filename: HH-TradeSkill-${env.VERSION}-bc.zip
+          path: ./HH-TradeSkill
+      - name: Release
+        uses: softprops/action-gh-release@v1
+        if: startsWith(github.ref, 'refs/tags/')
+        with:
+          files: HH-TradeSkill-${env.VERSION}-bc.zip
+          prerelease: true
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
