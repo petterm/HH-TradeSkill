@@ -211,6 +211,7 @@ end
 function TS:OnInitialize()
     TS:RegisterEvent("TRADE_SKILL_UPDATE", "TradeSkillEvent")
     TS:RegisterEvent("CRAFT_UPDATE", "TradeSkillEvent")
+    TS:RegisterEvent("PLAYER_LOGOUT", "PlayerLogoutEvent")
 
     TS.db = LibStub("AceDB-3.0"):New("HHTradeSkillDB", defaults)
     if TS.db.realm.dbVersion == nil or TS.db.realm.dbVersion < '1.1.0' then
@@ -239,6 +240,11 @@ function TS:OnInitialize()
             TS:SendLocalDB(TS.M.LOGIN_UPDATE, 'GUILD')
         end
     end, 60)
+end
+
+
+function TS:PlayerLogoutEvent()
+    TS:CancelAllTimers()
 end
 
 
@@ -474,9 +480,9 @@ function TS:UpdateSharedDB(packedDB, replace)
 
         for _, id in ipairs(idList) do
             if TS.db.realm.sharedDB[character][id] == nil then
-                TS.db.realm.sharedDB[character][id] = true
                 updates = updates + 1
             end
+            TS.db.realm.sharedDB[character][id] = true
             total = total + 1
         end
     end
