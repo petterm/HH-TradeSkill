@@ -1,8 +1,8 @@
-## Interface: 20501
+## Interface: 20504
 ## Title: HH Trade skill tracker
 ## Notes: Held Hostile trade skill recipe tracking
 ## Author: Pox / Meche
-## Version: 1.1.2
+## Version: 1.2.0
 ## SavedVariables: HHTradeSkillDB
 ## X-Category: Loot
 

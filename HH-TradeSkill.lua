@@ -366,6 +366,11 @@ end
 function TS:TradeSkillEvent()
     local profession = GetTradeSkillLine() -- This is the localized name
 
+    if IsTradeSkillLinked ~= nil and IsTradeSkillLinked() then
+        TS:DPrint(colorYellow("Ignoring linked proffession"))
+        return
+    end
+
     -- Enchanting and Beast Training has a different UI..
     if profession == "UNKNOWN" then
         profession = GetCraftDisplaySkillLine() or "UNKNOWN"
@@ -449,6 +454,7 @@ function TS:IsValidProfession(profession)
         'JEWELCRAFTING',
         'LEATHERWORKING',
         'TAILORING',
+        'INSCRIPTION',
     }
     for _, profKey in ipairs(validProfs) do
         if profession == TS.L[profKey] then

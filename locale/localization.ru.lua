@@ -11,4 +11,5 @@ if L then
 	L['JEWELCRAFTING'] = 'Кожевничество'
 	L['LEATHERWORKING'] = 'Портняжное дело'
 	L['TAILORING'] = 'Кулинария'
+	L['INSCRIPTION'] = 'Начертание'
 end

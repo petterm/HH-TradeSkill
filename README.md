@@ -1,5 +1,7 @@
 ### TODO:
 
+- Add player skills from opening proffession link for that player
+  - Only if player is in guild
 - Improve player list in tooltip
   - Put online players first
   - ~~Add limit to total shown, maybe with "+N" after~~
