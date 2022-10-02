@@ -412,23 +412,27 @@ function TS:UpdateLocalProfession(profession)
             local link = GetTradeSkillItemLink(i)
             local id = GetIdFromLink(link)
 
-            -- Local DB
-            if TS.db.realm.localDB[character] == nil then
-                TS.db.realm.localDB[character] = {}
-            end
-            if TS.db.realm.localDB[character][id] == nil then
-                TS:DPrint(colorBlue(itemName), colorYellow(id), kind)
-                TS.db.realm.localDB[character][id] = true
-                tinsert(newEntries, id)
+            -- Some non-enchanting crafts do not produce items, such as the engineering "enchants"
+            if id ~= nil then
+                -- Local DB
+                if TS.db.realm.localDB[character] == nil then
+                    TS.db.realm.localDB[character] = {}
+                end
+                if TS.db.realm.localDB[character][id] == nil then
+                    TS:DPrint(colorBlue(itemName), colorYellow(id), kind)
+                    TS.db.realm.localDB[character][id] = true
+                    tinsert(newEntries, id)
+                end
+    
+                -- Shared DB
+                if TS.db.realm.sharedDB[character] == nil then
+                    TS.db.realm.sharedDB[character] = {}
+                end
+                if TS.db.realm.sharedDB[character][id] == nil then
+                    TS.db.realm.sharedDB[character][id] = true
+                end
             end
 
-            -- Shared DB
-            if TS.db.realm.sharedDB[character] == nil then
-                TS.db.realm.sharedDB[character] = {}
-            end
-            if TS.db.realm.sharedDB[character][id] == nil then
-                TS.db.realm.sharedDB[character][id] = true
-            end
         end
     end
 
